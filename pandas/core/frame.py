@@ -11221,7 +11221,7 @@ class DataFrame(NDFrame, OpsMixin):
         >>> result.attrs["source"]  # Metadata is preserved
         'dataset1'
 
-        Note
+        Notes
         ----
         The merge operation propagates metadata (attrs, flags) from the left DataFrame
         to the result using the __finalize__ method.

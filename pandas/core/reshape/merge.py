@@ -402,8 +402,8 @@ def merge(
 
     # ADDED: Apply __finalize__ to propagate metadata
     # Use left DataFrame as the primary source for metadata
-    if hasattr(left, "__finalize__"):
-        result = result.__finalize__(left, method="merge")
+    if hasattr(result, "__finalize__"):
+        result = result.__finalize__(result, method="merge")
 
     return result
 
