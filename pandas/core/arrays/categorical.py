@@ -56,6 +56,11 @@ from pandas.core.dtypes.missing import (
     isna,
 )
 
+from pandas import (
+    DataFrame,
+    Index,
+    Series,
+)
 from pandas.core import (
     algorithms,
     arraylike,
@@ -109,12 +114,6 @@ if TYPE_CHECKING:
         Shape,
         SortKind,
         npt,
-    )
-
-    from pandas import (
-        DataFrame,
-        Index,
-        Series,
     )
 
 
@@ -389,6 +388,20 @@ class Categorical(NDArrayBackedExtensionArray, PandasObject, ObjectStringArrayMi
         dtype: Dtype | None = None,
         copy: bool = True,
     ) -> None:
+        """
+        Modified Categorical constructor to handle object dtype preservation.
+        """
+
+        # Before dtype inference, check if we need to preserve object dtype
+        if dtype is None and hasattr(values, "dtype"):
+            if isinstance(values, (Index, Series)) and values.dtype == np.dtype("O"):
+                # For pandas objects with object dtype, don't infer - preserve object
+                dtype = values.dtype
+            # For numpy arrays with object dtype, allow normal inference
+            elif isinstance(values, np.ndarray) and values.dtype == np.dtype("O"):
+                # This is the current behavior - infer from the array contents
+                pass
+
         dtype = CategoricalDtype._from_values_or_dtype(
             values, categories, ordered, dtype
         )
@@ -447,8 +460,6 @@ class Categorical(NDArrayBackedExtensionArray, PandasObject, ObjectStringArrayMi
             if isinstance(values.dtype, ArrowDtype) and issubclass(
                 values.dtype.type, CategoricalDtypeType
             ):
-                from pandas import Index
-
                 if isinstance(values, Index):
                     arr = values._data._pa_array.combine_chunks()
                 else:
@@ -640,7 +651,6 @@ class Categorical(NDArrayBackedExtensionArray, PandasObject, ObjectStringArrayMi
         Categorical
         """
         from pandas import (
-            Index,
             to_datetime,
             to_numeric,
             to_timedelta,
@@ -1420,7 +1430,6 @@ class Categorical(NDArrayBackedExtensionArray, PandasObject, ObjectStringArrayMi
         [NaN, 'c', 'b', 'c', NaN]
         Categories (2, object): ['b', 'c']
         """
-        from pandas import Index
 
         if not is_list_like(removals):
             removals = [removals]
@@ -2340,8 +2349,6 @@ class Categorical(NDArrayBackedExtensionArray, PandasObject, ObjectStringArrayMi
             value = self._encode_with_my_categories(value)
             return value._codes
 
-        from pandas import Index
-
         # tupleize_cols=False for e.g. test_fillna_iterable_category GH#41914
         to_add = Index._with_infer(value, tupleize_cols=False).difference(
             self.categories
@@ -2633,7 +2640,6 @@ class Categorical(NDArrayBackedExtensionArray, PandasObject, ObjectStringArrayMi
         counts = self.value_counts(dropna=False)
         freqs = counts / counts.sum()
 
-        from pandas import Index
         from pandas.core.reshape.concat import concat
 
         result = concat([counts, freqs], ignore_index=True, axis=1)

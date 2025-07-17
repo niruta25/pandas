@@ -136,3 +136,37 @@ class TestCategoricalDtypes:
             [0, 1], [1, 2], dtype="interval[uint64, right]"
         )
         tm.assert_index_equal(result, expected)
+
+    def test_categorical_object_dtype_preservation():
+        # Test that object dtype is preserved when creating
+        # Categorical from pandas objects.
+
+        # Test case 1: Series with object dtype containing mixed types
+        series_obj = Series([1, "a", 2.5, None], dtype="object")
+        cat_from_series = Categorical(series_obj)
+        assert cat_from_series.categories.dtype == np.dtype("O"), (
+            f"Expected object dtype, got {cat_from_series.categories.dtype}"
+        )
+
+        # Test case 2: Index with object dtype
+        index_obj = Index([1, "a", 2.5, None], dtype="object")
+        cat_from_index = Categorical(index_obj)
+        assert cat_from_index.categories.dtype == np.dtype("O"), (
+            f"Expected object dtype, got {cat_from_index.categories.dtype}"
+        )
+
+        # Test case 3: Numpy array with object dtype (should still infer)
+        np_obj = np.array(["a", "b", "c"], dtype="object")
+        cat_from_numpy = Categorical(np_obj)
+        # This should still infer as string (existing behavior)
+        assert cat_from_numpy.categories.dtype == np.dtype("O"), (
+            f"Expected object dtype, got {cat_from_numpy.categories.dtype}"
+        )
+
+        # Test case 4: Series with object dtype containing only strings
+        series_str_obj = Series(["a", "b", "c"], dtype="object")
+        cat_from_str_series = Categorical(series_str_obj)
+        # This should preserve object dtype, not infer string
+        assert cat_from_str_series.categories.dtype == np.dtype("O"), (
+            f"Expected object dtype, got {cat_from_str_series.categories.dtype}"
+        )
