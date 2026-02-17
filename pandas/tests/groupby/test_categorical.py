@@ -3,6 +3,8 @@ from datetime import datetime
 import numpy as np
 import pytest
 
+from pandas.errors import Pandas4Warning
+
 import pandas as pd
 from pandas import (
     Categorical,
@@ -1366,9 +1368,7 @@ def test_groupby_cat_preserves_structure(observed, ordered):
     expected = df.copy()
 
     result = (
-        df.groupby("Name", observed=observed)
-        .agg(DataFrame.sum, skipna=True)
-        .reset_index()
+        df.groupby("Name", observed=observed).agg(Series.sum, skipna=True).reset_index()
     )
 
     tm.assert_frame_equal(result, expected)
@@ -1495,7 +1495,7 @@ def test_dataframe_groupby_on_2_categoricals_when_observed_is_true(reduction_fun
 
     args = get_groupby_method_args(reduction_func, df)
     if reduction_func == "corrwith":
-        warn = FutureWarning
+        warn = Pandas4Warning
         warn_msg = "DataFrameGroupBy.corrwith is deprecated"
     else:
         warn = None
@@ -1509,7 +1509,7 @@ def test_dataframe_groupby_on_2_categoricals_when_observed_is_true(reduction_fun
 
 @pytest.mark.parametrize("observed", [False, None])
 def test_dataframe_groupby_on_2_categoricals_when_observed_is_false(
-    reduction_func, observed
+    reduction_func, observed, using_python_scalars
 ):
     # GH 23865
     # GH 27075
@@ -1541,7 +1541,7 @@ def test_dataframe_groupby_on_2_categoricals_when_observed_is_false(
         return
 
     if reduction_func == "corrwith":
-        warn = FutureWarning
+        warn = Pandas4Warning
         warn_msg = "DataFrameGroupBy.corrwith is deprecated"
     else:
         warn = None
@@ -1551,7 +1551,9 @@ def test_dataframe_groupby_on_2_categoricals_when_observed_is_false(
 
     expected = _results_for_groupbys_with_missing_categories[reduction_func]
 
-    if expected is np.nan:
+    if using_python_scalars and reduction_func == "size":
+        assert (res.loc[unobserved_cats] == expected).all() is True
+    elif expected is np.nan:
         assert res.loc[unobserved_cats].isnull().all().all()
     else:
         assert (res.loc[unobserved_cats] == expected).all().all()
@@ -1940,7 +1942,7 @@ def test_category_order_reducer(
             getattr(gb, reduction_func)(*args)
         return
     if reduction_func == "corrwith":
-        warn = FutureWarning
+        warn = Pandas4Warning
         warn_msg = "DataFrameGroupBy.corrwith is deprecated"
     else:
         warn = None
@@ -2141,6 +2143,45 @@ def test_agg_list(request, as_index, observed, reduction_func, test_series, keys
             [(ind, "") for ind in expected.columns[:-1]] + [("b", reduction_func)]
         )
     elif not as_index:
-        expected.columns = keys + [reduction_func]
+        expected.columns = [*keys, reduction_func]
 
     tm.assert_equal(result, expected)
+
+
+def test_categorical_with_noncategorical_na(observed, sort):
+    # https://github.com/pandas-dev/pandas/issues/63920
+    df = DataFrame(
+        {
+            "dates": list("YXXYY"),
+            "sector": Categorical(
+                [2, 1, 2, 1, np.nan], categories=[1, 2, 3], ordered=True
+            ),
+            "metric": [1, 2, 3, 4, 5],
+        }
+    )
+    gb = df.groupby(["dates", "sector"], observed=observed, sort=sort)
+    # Only testing the ids/result_index, okay to just use one kernel
+    result = gb.sum()
+
+    if sort and observed:
+        taker = [0, 1, 2, 3]
+    elif not sort and observed:
+        taker = [3, 0, 1, 2]
+    elif sort and not observed:
+        taker = [0, 1, 4, 2, 3, 5]
+    elif not sort and not observed:
+        taker = [3, 0, 1, 2, 5, 4]
+    expected = (
+        DataFrame(
+            {
+                "dates": list("XXYYXY"),
+                "sector": Categorical(
+                    [1, 2, 1, 2, 3, 3], categories=[1, 2, 3], ordered=True
+                ),
+                "metric": [2, 3, 4, 1, 0, 0],
+            }
+        )
+        .set_index(["dates", "sector"])
+        .take(taker)
+    )
+    tm.assert_frame_equal(result, expected)

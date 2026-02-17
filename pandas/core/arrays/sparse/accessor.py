@@ -310,6 +310,9 @@ class SparseFrameAccessor(BaseAccessor, PandasDelegate):
         """
         Create a new DataFrame from a scipy sparse matrix.
 
+        This method converts a scipy sparse matrix into a pandas DataFrame
+        with sparse array columns for memory efficiency.
+
         Parameters
         ----------
         data : scipy.sparse.spmatrix
@@ -369,6 +372,9 @@ class SparseFrameAccessor(BaseAccessor, PandasDelegate):
         """
         Convert a DataFrame with sparse values to dense.
 
+        This method converts all SparseArray columns in the DataFrame to
+        regular NumPy arrays.
+
         Returns
         -------
         DataFrame
@@ -396,6 +402,9 @@ class SparseFrameAccessor(BaseAccessor, PandasDelegate):
     def to_coo(self) -> spmatrix:
         """
         Return the contents of the frame as a sparse SciPy COO matrix.
+
+        This method converts the DataFrame to a scipy COO (Coordinate) sparse
+        matrix format for interoperability with scipy.sparse routines.
 
         Returns
         -------
@@ -440,15 +449,18 @@ class SparseFrameAccessor(BaseAccessor, PandasDelegate):
             rows.append(row)
             data.append(sp_arr.sp_values.astype(dtype, copy=False))
 
-        cols = np.concatenate(cols)
-        rows = np.concatenate(rows)
-        data = np.concatenate(data)
-        return coo_matrix((data, (rows, cols)), shape=self._parent.shape)
+        cols_arr = np.concatenate(cols)
+        rows_arr = np.concatenate(rows)
+        data_arr = np.concatenate(data)
+        return coo_matrix((data_arr, (rows_arr, cols_arr)), shape=self._parent.shape)
 
     @property
     def density(self) -> float:
         """
         Ratio of non-sparse points to total (dense) data points.
+
+        This property returns the proportion of the data that is not sparse
+        (i.e., not equal to the fill value), as a value between 0 and 1.
 
         See Also
         --------

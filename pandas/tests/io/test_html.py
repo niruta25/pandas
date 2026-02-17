@@ -61,7 +61,7 @@ def assert_framelist_equal(list1, list2, *args, **kwargs):
         )
     )
     assert both_frames, msg
-    for frame_i, frame_j in zip(list1, list2):
+    for frame_i, frame_j in zip(list1, list2, strict=True):
         tm.assert_frame_equal(frame_i, frame_j, *args, **kwargs)
         assert not frame_i.empty, "frames are both empty"
 
@@ -387,8 +387,16 @@ class TestReadHtml:
     @pytest.mark.single_cpu
     def test_invalid_url(self, httpserver, flavor_read_html):
         httpserver.serve_content("Name or service not known", code=404)
-        with pytest.raises((URLError, ValueError), match="HTTP Error 404: NOT FOUND"):
-            flavor_read_html(httpserver.url, match=".*Water.*")
+        try:
+            with pytest.raises(
+                (URLError, ValueError), match="HTTP Error 404: NOT FOUND"
+            ) as err:
+                flavor_read_html(httpserver.url, match=".*Water.*")
+        finally:
+            if isinstance(err.value, URLError):
+                # Has a file-like handle that we can close
+                # https://docs.python.org/3/library/urllib.error.html#urllib.error.HTTPError
+                err.value.close()
 
     @pytest.mark.slow
     def test_file_url(self, banklist_data, flavor_read_html):
@@ -745,7 +753,8 @@ class TestReadHtml:
             datapath("io", "data", "csv", "banklist.csv"),
             converters={"Updated Date": Timestamp, "Closing Date": Timestamp},
         )
-        assert df.shape == ground_truth.shape
+        # html is a truncated version of banklist since bs4 is slow to parse it
+        assert df.shape == (len(df), ground_truth.shape[1])
         old = [
             "First Vietnamese American Bank In Vietnamese",
             "Westernbank Puerto Rico En Espanol",
@@ -776,18 +785,19 @@ class TestReadHtml:
         converted = dfnew
         date_cols = ["Closing Date", "Updated Date"]
         converted[date_cols] = converted[date_cols].apply(to_datetime)
+        gtnew = gtnew[gtnew["Bank Name"].isin(converted["Bank Name"])].reset_index(
+            drop=True
+        )
         tm.assert_frame_equal(converted, gtnew)
 
     @pytest.mark.slow
-    def test_gold_canyon(self, banklist_data, flavor_read_html):
-        gc = "Gold Canyon"
+    def test_heartland_bank(self, banklist_data, flavor_read_html):
+        gc = "Heartland Bank"
         with open(banklist_data, encoding="utf-8") as f:
             raw_text = f.read()
 
         assert gc in raw_text
-        df = flavor_read_html(
-            banklist_data, match="Gold Canyon", attrs={"id": "table"}
-        )[0]
+        df = flavor_read_html(banklist_data, match=gc, attrs={"id": "table"})[0]
         assert gc in df.to_string()
 
     def test_different_number_of_cols(self, flavor_read_html):
@@ -1063,7 +1073,7 @@ class TestReadHtml:
         df = DataFrame({"date": date_range("1/1/2001", periods=10)})
 
         expected = df[:]
-        expected["date"] = expected["date"].dt.as_unit("s")
+        expected["date"] = expected["date"].dt.as_unit("us")
 
         str_df = df.to_html()
         res = flavor_read_html(StringIO(str_df), parse_dates=[1], index_col=0)

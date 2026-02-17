@@ -6,6 +6,7 @@ from collections.abc import (
     Sequence,
 )
 from functools import partial
+import pathlib
 import re
 from typing import (
     TYPE_CHECKING,
@@ -70,7 +71,9 @@ class StylerRenderer:
     Base class to process rendering a Styler with a specified jinja2 template.
     """
 
-    loader = jinja2.PackageLoader("pandas", "io/formats/templates")
+    this_dir = pathlib.Path(__file__).parent.resolve()
+    template_dir = this_dir / "templates"
+    loader = jinja2.FileSystemLoader(template_dir)
     env = jinja2.Environment(loader=loader, trim_blocks=True)
     template_html = env.get_template("html.tpl")
     template_html_table = env.get_template("html_table.tpl")
@@ -426,7 +429,7 @@ class StylerRenderer:
         clabels = self.data.columns.tolist()
         if self.data.columns.nlevels == 1:
             clabels = [[x] for x in clabels]
-        clabels = list(zip(*clabels))
+        clabels = list(zip(*clabels, strict=True))
 
         head = []
         # 1) column headers
@@ -911,7 +914,7 @@ class StylerRenderer:
             return row_indices
 
         body = []
-        for r, row in zip(concatenated_visible_rows(self), d["body"]):
+        for r, row in zip(concatenated_visible_rows(self), d["body"], strict=True):
             # note: cannot enumerate d["body"] because rows were dropped if hidden
             # during _translate_body so must zip to acquire the true r-index associated
             # with the ctx obj which contains the cell styles.
@@ -986,6 +989,12 @@ class StylerRenderer:
         r"""
         Format the text display value of cells.
 
+        This method allows control over how each data cell is displayed
+        by assigning a formatter function or format string. It is particularly
+        useful for adjusting floating point precision, handling missing values,
+        escaping special characters in HTML or LaTeX output, and adding
+        hyperlinks.
+
         Parameters
         ----------
         formatter : str, callable, dict or None
@@ -1000,19 +1009,10 @@ class StylerRenderer:
         precision : int, optional
             Floating point precision to use for display purposes, if not determined by
             the specified ``formatter``.
-
-            .. versionadded:: 1.3.0
-
         decimal : str, default "."
             Character used as decimal separator for floats, complex and integers.
-
-            .. versionadded:: 1.3.0
-
         thousands : str, optional, default None
             Character used as thousands separator for floats, complex and integers.
-
-            .. versionadded:: 1.3.0
-
         escape : str, optional
             Use 'html' to replace the characters ``&``, ``<``, ``>``, ``'``, and ``"``
             in cell display string with HTML-safe sequences.
@@ -1023,15 +1023,10 @@ class StylerRenderer:
             except for math substrings, which either are surrounded
             by two characters ``$`` or start with the character ``\(`` and
             end with ``\)``. Escaping is done before ``formatter``.
-
-            .. versionadded:: 1.3.0
-
         hyperlinks : {"html", "latex"}, optional
             Convert string patterns containing https://, http://, ftp:// or www. to
             HTML <a> tags as clickable URL hyperlinks if "html", or LaTeX \href
             commands if "latex".
-
-            .. versionadded:: 1.4.0
 
         Returns
         -------
@@ -1258,7 +1253,11 @@ class StylerRenderer:
         r"""
         Format the text display value of index labels or column headers.
 
-        .. versionadded:: 1.4.0
+        This method assigns a formatting function to the index or column header
+        labels of the DataFrame, similar to :meth:`Styler.format` but applied
+        to the axis labels rather than the data cells. It supports the same
+        formatter types: callables, format strings, and dicts keyed by
+        MultiIndex level.
 
         Parameters
         ----------
@@ -1442,7 +1441,11 @@ class StylerRenderer:
         r"""
         Relabel the index, or column header, keys to display a set of specified values.
 
-        .. versionadded:: 1.5.0
+        This method provides a way to completely replace the displayed index or
+        column header labels with user-specified values without modifying the
+        underlying DataFrame. It is especially useful when the desired display
+        labels are not a simple function of the existing keys, or when
+        enumeration-based labeling is needed.
 
         Parameters
         ----------

@@ -12,6 +12,8 @@ import pytest
 
 from pandas._config import using_string_dtype
 
+from pandas.errors import Pandas4Warning
+
 from pandas import (
     CategoricalIndex,
     DataFrame,
@@ -42,7 +44,7 @@ class TestDataFrameToStringFormatters:
             "except for the argument 'buf' will be keyword-only."
         )
         s = Series(["a", "b"])
-        with tm.assert_produces_warning(FutureWarning, match=msg):
+        with tm.assert_produces_warning(Pandas4Warning, match=msg):
             s.to_string(None, "NaN")
 
     def test_to_string_masked_ea_with_formatter(self):
@@ -78,7 +80,7 @@ class TestDataFrameToStringFormatters:
             ("object", lambda x: f"-{x!s}-"),
         ]
         result = df.to_string(formatters=dict(formatters))
-        result2 = df.to_string(formatters=list(zip(*formatters))[1])
+        result2 = df.to_string(formatters=list(zip(*formatters, strict=True))[1])
         assert result == (
             "  int  float    object\n"
             "0 0x1 [ 1.0]  -(1, 2)-\n"
@@ -205,7 +207,7 @@ class TestDataFrameToStringColSpace:
     def test_to_string_repr_tuples(self):
         buf = StringIO()
 
-        df = DataFrame({"tups": list(zip(range(10), range(10)))})
+        df = DataFrame({"tups": list(zip(range(10), range(10), strict=True))})
         repr(df)
         df.to_string(col_space=10, buf=buf)
 

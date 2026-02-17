@@ -67,6 +67,7 @@ from pandas._libs.tslibs.dtypes cimport (
 )
 from pandas._libs.tslibs.util cimport (
     is_array,
+    is_float_object,
     is_integer_object,
 )
 
@@ -371,10 +372,10 @@ cdef class _Timestamp(ABCTimestamp):
         Examples
         --------
         >>> pd.Timestamp("2020-01-01 12:34:56").unit
-        's'
+        'us'
 
         >>> pd.Timestamp("2020-01-01 12:34:56.123").unit
-        'ms'
+        'us'
 
         >>> pd.Timestamp("2020-01-01 12:34:56.123456").unit
         'us'
@@ -411,7 +412,7 @@ cdef class _Timestamp(ABCTimestamp):
 
     @classmethod
     def _from_dt64(cls, dt64: np.datetime64):
-        # construct a Timestamp from a np.datetime64 object, keeping the
+        # construct a Timestamp from an np.datetime64 object, keeping the
         #  resolution of the input.
         # This is here mainly so we can incrementally implement non-nano
         #  (e.g. only tznaive at first)
@@ -976,6 +977,8 @@ cdef class _Timestamp(ABCTimestamp):
         """
         Return day of the week.
 
+        Days are numbered Monday=0 through Sunday=6.
+
         Returns
         -------
         int
@@ -998,6 +1001,8 @@ cdef class _Timestamp(ABCTimestamp):
     def day_of_year(self) -> int:
         """
         Return the day of the year.
+
+        Days are numbered from 1 through 365 (or 366 in leap years).
 
         Returns
         -------
@@ -1058,6 +1063,8 @@ cdef class _Timestamp(ABCTimestamp):
         """
         Return the day of the Timestamp.
 
+        Days are numbered from 1 through the number of days in the month.
+
         Returns
         -------
         int
@@ -1080,6 +1087,9 @@ cdef class _Timestamp(ABCTimestamp):
     def fold(self) -> int:
         """
         Return the fold value of the Timestamp.
+
+        The fold attribute is used to disambiguate wall times in a repeated
+        interval during daylight saving time transitions.
 
         Returns
         -------
@@ -1150,6 +1160,8 @@ cdef class _Timestamp(ABCTimestamp):
     def hour(self) -> int:
         """
         Return the hour of the Timestamp.
+
+        Hours are numbered from 0 through 23.
 
         Returns
         -------
@@ -1288,6 +1300,8 @@ cdef class _Timestamp(ABCTimestamp):
         """
         Return the number of days in the month.
 
+        This value depends on the month and whether the year is a leap year.
+
         Returns
         -------
         int
@@ -1339,7 +1353,12 @@ cdef class _Timestamp(ABCTimestamp):
             int64_t ppd = periods_per_day(self._creso)
             _Timestamp ts
 
-        normalized = normalize_i8_stamp(local_val, ppd)
+        try:
+            normalized = normalize_i8_stamp(local_val, ppd)
+        except OverflowError as err:
+            raise ValueError(
+                "Cannot normalize Timestamp without integer overflow"
+            ) from err
         ts = type(self)._from_value_and_reso(normalized, reso=self._creso, tz=None)
         return ts.tz_localize(self.tzinfo)
 
@@ -1523,7 +1542,7 @@ cdef class _Timestamp(ABCTimestamp):
         >>> ts
         Timestamp('2023-01-01 00:00:00.010000')
         >>> ts.unit
-        'ms'
+        'us'
         >>> ts = ts.as_unit('s')
         >>> ts
         Timestamp('2023-01-01 00:00:00')
@@ -1544,6 +1563,8 @@ cdef class _Timestamp(ABCTimestamp):
         """
         Return numpy datetime64 format with same precision.
 
+        This property provides interoperability with NumPy datetime operations.
+
         See Also
         --------
         numpy.datetime64 : Numpy datatype for dates and times with high precision.
@@ -1554,7 +1575,7 @@ cdef class _Timestamp(ABCTimestamp):
         --------
         >>> ts = pd.Timestamp(2020, 3, 14, 15)
         >>> ts.asm8
-        numpy.datetime64('2020-03-14T15:00:00.000000')
+        np.datetime64('2020-03-14T15:00:00.000000')
         """
         return self.to_datetime64()
 
@@ -1661,7 +1682,7 @@ cdef class _Timestamp(ABCTimestamp):
         >>> ts
         Timestamp('2023-01-01 10:00:15')
         >>> ts.to_datetime64()
-        numpy.datetime64('2023-01-01T10:00:15.000000')
+        np.datetime64('2023-01-01T10:00:15.000000')
         """
         # TODO: find a way to construct dt64 directly from _reso
         abbrev = npy_unit_to_abbrev(self._creso)
@@ -1696,12 +1717,12 @@ cdef class _Timestamp(ABCTimestamp):
         --------
         >>> ts = pd.Timestamp('2020-03-14T15:32:52.192548651')
         >>> ts.to_numpy()
-        numpy.datetime64('2020-03-14T15:32:52.192548651')
+        np.datetime64('2020-03-14T15:32:52.192548651')
 
         Analogous for ``pd.NaT``:
 
         >>> pd.NaT.to_numpy()
-        numpy.datetime64('NaT')
+        np.datetime64('NaT')
         """
         if dtype is not None or copy is not False:
             raise ValueError(
@@ -1711,7 +1732,7 @@ cdef class _Timestamp(ABCTimestamp):
 
     def to_period(self, freq=None):
         """
-        Return an period of which this timestamp is an observation.
+        Return a period of which this timestamp is an observation.
 
         This method converts the given Timestamp to a Period object,
         which represents a span of time,such as a year, month, etc.,
@@ -1863,7 +1884,7 @@ class Timestamp(_Timestamp):
     @classmethod
     def fromordinal(cls, ordinal, tz=None):
         """
-        Construct a timestamp from a a proleptic Gregorian ordinal.
+        Construct a timestamp from a proleptic Gregorian ordinal.
 
         This method creates a `Timestamp` object corresponding to the given
         proleptic Gregorian ordinal, which is a count of days from January 1,
@@ -1911,7 +1932,9 @@ class Timestamp(_Timestamp):
         Return new Timestamp object representing current time local to tz.
 
         This method returns a new `Timestamp` object that represents the current time.
-        If a timezone is provided, the current time will be localized to that timezone.
+        If a timezone is provided, either through a timezone object or an IANA
+        standard timezone identifier, the current time will be localized to that
+        timezone.
         Otherwise, it returns the current local time.
 
         Parameters
@@ -1929,6 +1952,11 @@ class Timestamp(_Timestamp):
         --------
         >>> pd.Timestamp.now()  # doctest: +SKIP
         Timestamp('2020-11-16 22:06:16.378782')
+
+        If you want a specific timezone, in this case 'Brazil/East':
+
+        >>> pd.Timestamp.now('Brazil/East')  # doctest: +SKIP
+        Timestamp('2025-11-11 22:17:59.609943-03:00)
 
         Analogous for ``pd.NaT``:
 
@@ -1994,12 +2022,14 @@ class Timestamp(_Timestamp):
         >>> pd.Timestamp.utcnow()   # doctest: +SKIP
         Timestamp('2020-11-16 22:50:18.092888+0000', tz='UTC')
         """
+        from pandas.errors import Pandas4Warning
+
         warnings.warn(
             # The stdlib datetime.utcnow is deprecated, so we deprecate to match.
             #  GH#56680
             "Timestamp.utcnow is deprecated and will be removed in a future "
             "version. Use Timestamp.now('UTC') instead.",
-            FutureWarning,
+            Pandas4Warning,
             stacklevel=find_stack_level(),
         )
         return cls.now(UTC)
@@ -2036,13 +2066,15 @@ class Timestamp(_Timestamp):
         >>> pd.Timestamp.utcfromtimestamp(1584199972)
         Timestamp('2020-03-14 15:32:52+0000', tz='UTC')
         """
+        from pandas.errors import Pandas4Warning
+
         # GH#22451
         warnings.warn(
             # The stdlib datetime.utcfromtimestamp is deprecated, so we deprecate
             #  to match. GH#56680
             "Timestamp.utcfromtimestamp is deprecated and will be removed in a "
             "future version. Use Timestamp.fromtimestamp(ts, 'UTC') instead.",
-            FutureWarning,
+            Pandas4Warning,
             stacklevel=find_stack_level(),
         )
         return cls.fromtimestamp(ts, tz="UTC")
@@ -2450,7 +2482,7 @@ class Timestamp(_Timestamp):
         >>> ts
         Timestamp('2023-01-01 10:00:00+0100', tz='Europe/Brussels')
         >>> ts.timetz()
-        datetime.time(10, 0, tzinfo=<DstTzInfo 'Europe/Brussels' CET+1:00:00 STD>)
+        datetime.time(10, 0, tzinfo=zoneinfo.ZoneInfo(key='Europe/Brussels'))
         """
         return super().timetz()
 
@@ -2644,6 +2676,19 @@ class Timestamp(_Timestamp):
 
             if hasattr(ts_input, "fold"):
                 ts_input = ts_input.replace(fold=fold)
+
+        if (
+            unit is not None
+            and not (is_float_object(ts_input) or is_integer_object(ts_input))
+        ):
+            # GH#53198
+            warnings.warn(
+                "The 'unit' keyword is only used when the Timestamp input is "
+                f"an integer or float, not {type(ts_input).__name__}. "
+                "To specify the storage unit of the output use `ts.as_unit(unit)`",
+                UserWarning,
+                stacklevel=find_stack_level(),
+            )
 
         # GH 30543 if pd.Timestamp already passed, return it
         # check that only ts_input is passed
@@ -3353,6 +3398,7 @@ default 'raise'
             datetime ts_input
             tzinfo_type tzobj
             _TSObject ts
+            NPY_DATETIMEUNIT creso = self._creso
 
         # set to naive if needed
         tzobj = self.tzinfo
@@ -3392,8 +3438,12 @@ default 'raise'
             dts.sec = validate("second", second)
         if microsecond is not None:
             dts.us = validate("microsecond", microsecond)
+            if creso < NPY_DATETIMEUNIT.NPY_FR_us:
+                # GH#57749
+                creso = NPY_DATETIMEUNIT.NPY_FR_us
         if nanosecond is not None:
             dts.ps = validate("nanosecond", nanosecond) * 1000
+            creso = NPY_FR_ns  # GH#57749
         if tzinfo is not object:
             tzobj = tzinfo
 
@@ -3403,17 +3453,17 @@ default 'raise'
             #  to datetimes outside of pydatetime range.
             ts = _TSObject()
             try:
-                ts.value = npy_datetimestruct_to_datetime(self._creso, &dts)
+                ts.value = npy_datetimestruct_to_datetime(creso, &dts)
             except OverflowError as err:
                 fmt = dts_to_iso_string(&dts)
                 raise OutOfBoundsDatetime(
                     f"Out of bounds timestamp: {fmt} with frequency '{self.unit}'"
                 ) from err
             ts.dts = dts
-            ts.creso = self._creso
+            ts.creso = creso
             ts.fold = fold
             return create_timestamp_from_ts(
-                ts.value, dts, tzobj, fold, reso=self._creso
+                ts.value, dts, tzobj, fold, reso=creso
             )
 
         elif tzobj is not None and treat_tz_as_pytz(tzobj):
@@ -3432,15 +3482,15 @@ default 'raise'
             ts_input = datetime(**kwargs)
 
         ts = convert_datetime_to_tsobject(
-            ts_input, tzobj, nanos=dts.ps // 1000, reso=self._creso
+            ts_input, tzobj, nanos=dts.ps // 1000, reso=creso
         )
         return create_timestamp_from_ts(
-            ts.value, dts, tzobj, fold, reso=self._creso
+            ts.value, dts, tzobj, fold, reso=creso
         )
 
     def to_julian_date(self) -> np.float64:
         """
-        Convert TimeStamp to a Julian Date.
+        Convert Timestamp to a Julian Date.
 
         This method returns the number of days as a float since
         0 Julian date, which is noon January 1, 4713 BC.
@@ -3457,25 +3507,31 @@ default 'raise'
         >>> ts.to_julian_date()
         2458923.147824074
         """
+        from pandas.core.dtypes.cast import maybe_unbox_numpy_scalar
+
         year = self._year
         month = self.month
         day = self.day
         if month <= 2:
             year -= 1
             month += 12
-        return (day +
-                np.fix((153 * month - 457) / 5) +
-                365 * year +
-                np.floor(year / 4) -
-                np.floor(year / 100) +
-                np.floor(year / 400) +
-                1721118.5 +
-                (self.hour +
-                 self.minute / 60.0 +
-                 self.second / 3600.0 +
-                 self.microsecond / 3600.0 / 1e+6 +
-                 self._nanosecond / 3600.0 / 1e+9
-                 ) / 24.0)
+        result = (
+            day +
+            np.trunc((153 * month - 457) / 5) +
+            365 * year +
+            np.floor(year / 4) -
+            np.floor(year / 100) +
+            np.floor(year / 400) +
+            1721118.5 +
+            (self.hour +
+             self.minute / 60.0 +
+             self.second / 3600.0 +
+             self.microsecond / 3600.0 / 1e+6 +
+             self._nanosecond / 3600.0 / 1e+9
+             ) / 24.0
+        )
+        result = maybe_unbox_numpy_scalar(result)
+        return result
 
     def isoweekday(self):
         """
@@ -3538,7 +3594,7 @@ Timestamp.daysinmonth = Timestamp.days_in_month
 
 
 @cython.cdivision(False)
-cdef int64_t normalize_i8_stamp(int64_t local_val, int64_t ppd) noexcept nogil:
+cdef int64_t normalize_i8_stamp(int64_t local_val, int64_t ppd):
     """
     Round the localized nanosecond timestamp down to the previous midnight.
 
@@ -3552,4 +3608,6 @@ cdef int64_t normalize_i8_stamp(int64_t local_val, int64_t ppd) noexcept nogil:
     -------
     int64_t
     """
-    return local_val - (local_val % ppd)
+    with cython.overflowcheck(True):
+        # GH#60583
+        return local_val - (local_val % ppd)
